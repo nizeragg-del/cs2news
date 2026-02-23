@@ -43,8 +43,8 @@ def fetch_full_content(url, description=""):
     except:
         pass
 
-    # Padrão de imagem provável da CDN HLTV (Funciona se o navegador usar no-referrer)
-    probable_image = f"https://img-cdn.hltv.org/images/article/main/{news_id}" if news_id != "unknown" else ""
+    # Padrão de imagem provável da CDN HLTV (Funciona com no-referrer)
+    probable_image = f"https://img-cdn.hltv.org/images/article/main/{news_id}.jpg" if news_id != "unknown" else ""
 
     try:
         print(f"Tentando capturar detalhes via rede: {url}")
@@ -147,6 +147,10 @@ def job():
         # Reescrita IA
         title, excerpt, content = rewrite_with_ai(full_text)
         
+        if not title or not content or len(content) < 50:
+            print(f"⚠️ Conteúdo insuficiente para: {item['title']}. Pulando...")
+            continue
+
         data = {
             "title": title,
             "excerpt": excerpt,
