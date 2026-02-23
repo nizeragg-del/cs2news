@@ -111,44 +111,17 @@ def rewrite_with_ai(original_content):
         print(f"Erro Gemini: {e}")
         return "Erro na Reescrita", "Falha de IA", original_content
 
-# Lista de IDs do Unsplash para CS2/Gaming (Imagens premium e temáticas)
+# Fallback IDs do Unsplash caso a imagem da HLTV falhe totalmente
 UNSPLASH_IDS = [
     "1542751371-adc38448a05e", # Guy playing
     "1511512578047-dfb367046420", # Gaming setup
-    "1542751110-97427bbecf20", # ESports arena
-    "1612287230202-1ff1d85d1bdf", # Game controller
-    "1538356111082-d291891cbc19", # Dark room gaming
-    "1605339236444-a303c241538e", # PC components
-    "1493711662062-fa541adb3fc8", # Joystick
-    "1550745165-9bc0b252726f"  # Tech devices
+    "1542751110-97427bbecf20"  # ESports arena
 ]
 
-def fetch_image_from_unsplash(post_id):
-    """Escolhe um ID do Unsplash e baixa a imagem localmente"""
+def get_fallback_image():
     import random
     img_id = random.choice(UNSPLASH_IDS)
-    img_url = f"https://images.unsplash.com/photo-{img_id}?q=80&w=1000&auto=format&fit=crop"
-    
-    try:
-        # Caminho absoluto para a pasta public do Next.js
-        base_dir = os.path.dirname(os.getcwd())
-        public_dir = os.path.join(base_dir, "public", "images")
-        if not os.path.exists(public_dir):
-            os.makedirs(public_dir, exist_ok=True)
-            
-        filename = f"post_{post_id}.jpg"
-        filepath = os.path.join(public_dir, filename)
-        
-        print(f"Baixando imagem temática de eSports do Unsplash: {img_url}")
-        res = requests.get(img_url, timeout=15)
-        if res.status_code == 200:
-            with open(filepath, "wb") as f:
-                f.write(res.content)
-            return f"/images/{filename}"
-    except Exception as e:
-        print(f"Erro ao baixar imagem: {e}")
-        
-    return "https://images.unsplash.com/photo-1542751371-adc38448a05e" # Global fallback
+    return f"https://images.unsplash.com/photo-{img_id}?q=80&w=1000&auto=format&fit=crop"
 
 def job():
     print("--- INICIANDO ROBÔ DE NOTÍCIAS (GERAÇÃO DE CONTEÚDO E IMAGENS LOCAIS) ---")
@@ -163,30 +136,29 @@ def job():
     ]
 
     for item in news_list:
-        post_id = str(int(time.time()))
         print(f"Processando: {item['title']}")
         
-        # Obtém conteúdo (mesmo sob bloqueio, o rewrite IA cuida disso)
-        full_text, _ = fetch_full_content(item['link'], item['description'])
+        # Obtém conteúdo e a URL da imagem (HLTV CDN ou Meta Tag)
+        full_text, hltv_image_url = fetch_full_content(item['link'], item['description'])
+        
+        # Se a imagem da HLTV falhar ou for vazia, usa Unsplash link direto
+        final_image_url = hltv_image_url if hltv_image_url else get_fallback_image()
         
         # Reescrita IA
         title, excerpt, content = rewrite_with_ai(full_text)
-        
-        # Download da imagem para a pasta public local
-        local_image_url = fetch_image_from_unsplash(post_id)
         
         data = {
             "title": title,
             "excerpt": excerpt,
             "content": content,
-            "image_url": local_image_url,
+            "image_url": final_image_url,
             "source_url": None,
             "category": "Mercado"
         }
         
         try:
             supabase.table("posts").insert(data).execute()
-            print(f"✅ Postado com sucesso com imagem local: {local_image_url}")
+            print(f"✅ Postado com sucesso! Imagem: {final_image_url}")
         except Exception as e:
             print(f"❌ Erro Supabase: {e}")
 
