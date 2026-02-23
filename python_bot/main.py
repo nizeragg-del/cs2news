@@ -22,8 +22,11 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # Configura Gemini (usando gemini-2.5-flash validado)
 if GEMINI_KEY:
     genai.configure(api_key=GEMINI_KEY)
-    # gemini-1.5-flash tem 15 RPM e 1M de tokens no plano grátis (mais estável que o 2.5 experimental)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    # Tentamos gemini-1.5-flash-latest para maior compatibilidade com SDKs v1beta/v1
+    try:
+        model = genai.GenerativeModel('gemini-1.5-flash-latest')
+    except:
+        model = genai.GenerativeModel('gemini-1.5-flash')
 else:
     model = None
 
@@ -39,10 +42,15 @@ def get_headers(site="hltv"):
             "Accept-Encoding": "gzip, deflate",
         }
     return {
-        "User-Agent": ua,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
         "Accept-Language": "pt-BR,pt;q=0.9,en-US,en;q=0.8",
-        "Referer": "https://www.google.com/"
+        "Referer": "https://www.google.com/",
+        "Origin": "https://www.hltv.org",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "cross-site",
+        "Connection": "keep-alive"
     }
 
 def upload_image_to_supabase(url, file_name):
