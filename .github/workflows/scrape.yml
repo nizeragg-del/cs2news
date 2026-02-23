@@ -1,0 +1,32 @@
+name: CS2 News Robot Scraper
+
+on:
+  schedule:
+    - cron: '0 * * * *' # Roda a cada 1 hora
+  workflow_dispatch: # Permite rodar manualmente no GitHub
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          cd python_bot
+          pip install requests beautifulsoup4 supabase google-generativeai python-dotenv cloudscraper
+
+      - name: Run Scraper
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          cd python_bot
+          python main.py
