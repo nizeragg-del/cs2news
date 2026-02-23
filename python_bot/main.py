@@ -140,31 +140,37 @@ def rewrite_with_ai(original_content):
         print(f"Erro Gemini: {e}")
         return "Erro na Reescrita", "Falha de IA", original_content
 
-def get_player_image_liquipedia(player_name):
-    """Tenta buscar a imagem de um jogador na Liquipedia"""
+def get_player_image(player_name):
+    """Buscador de imagem resiliente usando DuckDuckGo para encontrar thumbnails estáveis"""
     if not player_name:
         return None
     
-    # Formata nome para URL da Liquipedia (ex: "NBK-" -> "NBK-", "ZywOo" -> "ZywOo")
-    formatted_name = player_name.replace(" ", "_")
-    url = f"https://liquipedia.net/counterstrike/{formatted_name}"
+    query = f"{player_name} cs2 player photo"
+    url = f"https://duckduckgo.com/html/?q={query}"
     
     try:
-        print(f"Buscando player na Liquipedia: {url}")
+        print(f"Buscando player via pesquisa pública: {query}")
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
         }
         res = requests.get(url, headers=headers, timeout=15)
         if res.status_code == 200:
             soup = BeautifulSoup(res.text, 'html.parser')
-            # Procura por imagem na infobox ou galeria
-            img_tag = soup.select_one(".infobox-image img") or soup.select_one(".thumbimage")
+            # Pega a primeira imagem de resultado que parece um thumbnail útil
+            # Nota: O DuckDuckGo HTML tem uma estrutura simples
+            img_tag = soup.select_one(".tile--img__img") or soup.select_one(".result__image") or soup.find("img", class_="tile--img__img")
             if img_tag:
-                img_url = "https://liquipedia.net" + img_tag['src'] if img_tag['src'].startswith("/") else img_tag['src']
-                return img_url # Retorna URL para o upload tratar
+                # Se for DDG, a URL real pode estar em parâmetros, mas o src do thumbnail costuma ser gstatic/proxied
+                img_url = img_tag.get('src') or img_tag.get('data-src')
+                if img_url:
+                    if img_url.startswith("//"): img_url = "https:" + img_url
+                    return img_url
     except Exception as e:
-        print(f"Erro Liquipedia: {e}")
-    return None
+        print(f"Erro na busca de imagem: {e}")
+    
+    # Se falhar o DDG, tenta um link direto da Liquipedia via construção de URL (mesmo com risco de 403)
+    formatted_name = player_name.replace(" ", "_")
+    return f"https://liquipedia.net/counterstrike/{formatted_name}"
 
 def extract_main_player(text):
     """Usa a IA para identificar o jogador principal da notícia"""
@@ -212,25 +218,25 @@ def job():
         # Reescrita IA
         title, excerpt, content = rewrite_with_ai(full_text)
 
-        # ESTRATÉGIA DE IMAGEM MULTI-CAMADA
+        # ESTRATÉGIA DE IMAGEM MULTI-CAMADA (RESILIENTE)
         final_image_url = None
         post_id = str(int(time.time()))
         
-        # 1. Tentativa HLTV
+        # 1. Tentativa HLTV (Sempre tentamos, às vezes passa)
         print("Tentando Imagem HLTV...")
         final_image_url = upload_image_to_supabase(hltv_image_url, f"hltv_{post_id}")
         
-        # 2. Tentativa Liquipedia se a HLTV falhar
+        # 2. Busca Pública de Jogador (DuckDuckGo/Thumbnail)
         if not final_image_url:
-            print("HLTV falhou. Tentando extrator de jogadores e Liquipedia...")
+            print("HLTV falhou. Buscando foto real do jogador...")
             player_name = extract_main_player(full_text or excerpt)
             if player_name:
-                liquipedia_url = get_player_image_liquipedia(player_name)
-                final_image_url = upload_image_to_supabase(liquipedia_url, f"player_{post_id}")
+                search_img_url = get_player_image(player_name)
+                final_image_url = upload_image_to_supabase(search_img_url, f"player_{post_id}")
         
         # 3. Fallback final Unsplash
         if not final_image_url:
-            print("Liquipedia falhou. Usando Unsplash.")
+            print("Busca de jogador falhou. Usando Unsplash profissional.")
             final_image_url = get_fallback_image()
         
         if not title or not content or len(content) < 50:
