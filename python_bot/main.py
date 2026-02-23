@@ -22,7 +22,8 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # Configura Gemini (usando gemini-2.5-flash validado)
 if GEMINI_KEY:
     genai.configure(api_key=GEMINI_KEY)
-    model = genai.GenerativeModel('gemini-2.5-flash')
+    # gemini-1.5-flash tem 15 RPM e 1M de tokens no plano grátis (mais estável que o 2.5 experimental)
+    model = genai.GenerativeModel('gemini-1.5-flash')
 else:
     model = None
 
@@ -150,8 +151,18 @@ def rewrite_with_ai(original_content):
     """
     
     try:
-        response = model.generate_content(prompt)
-        text = response.text
+        # Tenta com retentativa se der 429
+        for attempt in range(3):
+            try:
+                response = model.generate_content(prompt)
+                text = response.text
+                break
+            except Exception as e:
+                if "429" in str(e) and attempt < 2:
+                    print(f"Quota Gemini excedida. Aguardando 10s (tentativa {attempt+1})...")
+                    time.sleep(10)
+                else:
+                    raise e
         
         new_title = ""
         new_excerpt = ""
@@ -221,15 +232,26 @@ def extract_entities(title, text):
     Texto: {text[:500]}
     """
     try:
-        response = model.generate_content(prompt)
-        lines = response.text.strip().split('\n')
-        player, team = None, None
-        for line in lines:
-            if "PLAYER:" in line: player = line.split("PLAYER:")[1].strip()
-            if "TEAM:" in line: team = line.split("TEAM:")[1].strip()
-        
-        return (None if player == "None" else player), (None if team == "None" else team)
+        for attempt in range(2):
+            try:
+                response = model.generate_content(prompt)
+                lines = response.text.strip().split('\n')
+                player, team = None, None
+                for line in lines:
+                    if "PLAYER:" in line: player = line.split("PLAYER:")[1].strip()
+                    if "TEAM:" in line: team = line.split("TEAM:")[1].strip()
+                return (None if player == "None" else player), (None if team == "None" else team)
+            except Exception as e:
+                if "429" in str(e) and attempt == 0:
+                    time.sleep(5)
+                else:
+                    raise e
     except:
+        # Fallback manual simples se a IA falhar (pega palavras em caixa alta)
+        print("Fallback manual de extração de jogadores...")
+        words = title.split()
+        for w in words:
+            if w.isupper() and len(w) > 2: return w, None
         return None, None
 
 # Fallback IDs do Unsplash caso tudo falhe
