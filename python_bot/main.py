@@ -32,25 +32,32 @@ def get_headers():
         "Accept-Language": "pt-BR,pt;q=0.9,en-US,en;q=0.8",
     }
 
-def download_image_as_base64(url):
-    """Baixa a imagem e retorna em formato Base64 para salvar no banco"""
+def upload_image_to_supabase(url, file_name):
+    """Baixa a imagem e faz upload para o Supabase Storage"""
     if not url:
         return None
     try:
-        print(f"Baixando imagem para Base64: {url}")
+        print(f"Baixando imagem para Storage: {url}")
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
             "Referer": "https://www.hltv.org/"
         }
-        response = requests.get(url, headers=headers, timeout=15)
+        response = requests.get(url, headers=headers, timeout=20)
         if response.status_code == 200:
-            content_type = response.headers.get("content-type", "image/jpeg")
-            encoded_string = base64.b64encode(response.content).decode("utf-8")
-            return f"data:{content_type};base64,{encoded_string}"
+            # Upload para o bucket 'images'
+            storage_path = f"news/{file_name}.jpg"
+            supabase.storage.from_("images").upload(
+                path=storage_path,
+                file=response.content,
+                file_options={"content-type": "image/jpeg", "x-upsert": "true"}
+            )
+            # Retorna URL pública
+            public_url = f"{SUPABASE_URL}/storage/v1/object/public/images/{storage_path}"
+            return public_url
         else:
             print(f"Falha ao baixar imagem (Status {response.status_code})")
     except Exception as e:
-        print(f"Erro ao converter imagem: {e}")
+        print(f"Erro ao subir para storage: {e}")
     return None
 
 def fetch_full_content(url, description=""):
@@ -154,7 +161,7 @@ def get_player_image_liquipedia(player_name):
             img_tag = soup.select_one(".infobox-image img") or soup.select_one(".thumbimage")
             if img_tag:
                 img_url = "https://liquipedia.net" + img_tag['src'] if img_tag['src'].startswith("/") else img_tag['src']
-                return download_image_as_base64(img_url)
+                return img_url # Retorna URL para o upload tratar
     except Exception as e:
         print(f"Erro Liquipedia: {e}")
     return None
@@ -207,17 +214,19 @@ def job():
 
         # ESTRATÉGIA DE IMAGEM MULTI-CAMADA
         final_image_url = None
+        post_id = str(int(time.time()))
         
-        # 1. Tentativa HLTV (Base64)
-        print("Tentando Imagem HLTV (Base64)...")
-        final_image_url = download_image_as_base64(hltv_image_url)
+        # 1. Tentativa HLTV
+        print("Tentando Imagem HLTV...")
+        final_image_url = upload_image_to_supabase(hltv_image_url, f"hltv_{post_id}")
         
-        # 2. Tentativa Liquipedia (Base64) se a HLTV falhar
+        # 2. Tentativa Liquipedia se a HLTV falhar
         if not final_image_url:
             print("HLTV falhou. Tentando extrator de jogadores e Liquipedia...")
             player_name = extract_main_player(full_text or excerpt)
             if player_name:
-                final_image_url = get_player_image_liquipedia(player_name)
+                liquipedia_url = get_player_image_liquipedia(player_name)
+                final_image_url = upload_image_to_supabase(liquipedia_url, f"player_{post_id}")
         
         # 3. Fallback final Unsplash
         if not final_image_url:
