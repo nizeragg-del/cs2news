@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 from supabase import create_client, Client
 import google.generativeai as genai
 from dotenv import load_dotenv
+import base64
 
 load_dotenv()
 
@@ -30,6 +31,27 @@ def get_headers():
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
         "Accept-Language": "pt-BR,pt;q=0.9,en-US,en;q=0.8",
     }
+
+def download_image_as_base64(url):
+    """Baixa a imagem e retorna em formato Base64 para salvar no banco"""
+    if not url:
+        return None
+    try:
+        print(f"Baixando imagem para Base64: {url}")
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+            "Referer": "https://www.hltv.org/"
+        }
+        response = requests.get(url, headers=headers, timeout=15)
+        if response.status_code == 200:
+            content_type = response.headers.get("content-type", "image/jpeg")
+            encoded_string = base64.b64encode(response.content).decode("utf-8")
+            return f"data:{content_type};base64,{encoded_string}"
+        else:
+            print(f"Falha ao baixar imagem (Status {response.status_code})")
+    except Exception as e:
+        print(f"Erro ao converter imagem: {e}")
+    return None
 
 def fetch_full_content(url, description=""):
     """
@@ -141,8 +163,11 @@ def job():
         # Obtém conteúdo e a URL da imagem (HLTV CDN ou Meta Tag)
         full_text, hltv_image_url = fetch_full_content(item['link'], item['description'])
         
-        # Se a imagem da HLTV falhar ou for vazia, usa Unsplash link direto
-        final_image_url = hltv_image_url if hltv_image_url else get_fallback_image()
+        # Tenta baixar a imagem e converter para Base64 para salvar no banco
+        base64_image = download_image_as_base64(hltv_image_url)
+        
+        # Se a imagem da HLTV falhar, usa Unsplash
+        final_image_url = base64_image if base64_image else get_fallback_image()
         
         # Reescrita IA
         title, excerpt, content = rewrite_with_ai(full_text)

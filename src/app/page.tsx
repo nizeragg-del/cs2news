@@ -19,7 +19,7 @@ export default async function Home() {
       <section className="relative h-[400px] rounded-3xl overflow-hidden glass-card group">
         <div className="absolute inset-0 bg-gradient-to-t from-background via-background/40 to-transparent z-10" />
         <div
-          className="absolute inset-0 bg-cover bg-center group-hover:scale-105 transition-transform duration-700 opacity-60"
+          className="absolute inset-0 bg-cover bg-top group-hover:scale-105 transition-transform duration-700 opacity-60"
           style={{ backgroundImage: "url('/images/hero.jpg')" }}
         />
 
