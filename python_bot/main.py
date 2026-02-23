@@ -6,6 +6,9 @@ from supabase import create_client, Client
 import google.generativeai as genai
 from dotenv import load_dotenv
 import base64
+import random
+
+# Deixamos o google.generativeai por enquanto...
 
 load_dotenv()
 
@@ -25,11 +28,20 @@ else:
 
 HLTV_RSS_URL = "https://www.hltv.org/rss/news"
 
-def get_headers():
+def get_headers(site="hltv"):
+    """Retorna headers específicos para cada site para evitar bloqueios"""
+    ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+    if site == "liquipedia":
+        # Liquipedia exige um contato no User-Agent para não dar 403
+        return {
+            "User-Agent": f"GamerNewsBot/1.0 (contact@gamernewsbrasil.com.br) {ua}",
+            "Accept-Encoding": "gzip, deflate",
+        }
     return {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        "User-Agent": ua,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
         "Accept-Language": "pt-BR,pt;q=0.9,en-US,en;q=0.8",
+        "Referer": "https://www.google.com/"
     }
 
 def upload_image_to_supabase(url, file_name):
@@ -38,26 +50,43 @@ def upload_image_to_supabase(url, file_name):
         return None
     try:
         print(f"Baixando imagem para Storage: {url}")
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-            "Referer": "https://www.hltv.org/"
-        }
-        response = requests.get(url, headers=headers, timeout=20)
+        # Tenta com headers de Liquipedia se for de lá, senão padrão
+        site = "liquipedia" if "liquipedia" in url else "hltv"
+        response = requests.get(url, headers=get_headers(site), timeout=25)
+        
         if response.status_code == 200:
-            # Upload para o bucket 'images'
             storage_path = f"news/{file_name}.jpg"
+            # Usa upsert para não dar erro se já existir
             supabase.storage.from_("images").upload(
                 path=storage_path,
                 file=response.content,
                 file_options={"content-type": "image/jpeg", "x-upsert": "true"}
             )
-            # Retorna URL pública
-            public_url = f"{SUPABASE_URL}/storage/v1/object/public/images/{storage_path}"
-            return public_url
+            return f"{SUPABASE_URL}/storage/v1/object/public/images/{storage_path}"
         else:
             print(f"Falha ao baixar imagem (Status {response.status_code})")
     except Exception as e:
         print(f"Erro ao subir para storage: {e}")
+    return None
+
+def get_player_image_wikimedia(player_name):
+    """Busca imagem no Wikimedia Commons (extremamente amigável a bots)"""
+    if not player_name:
+        return None
+    try:
+        print(f"Buscando {player_name} no Wikimedia...")
+        search_url = f"https://commons.wikimedia.org/w/api.php?action=query&list=search&srsearch={player_name} counter-strike&format=json"
+        res = requests.get(search_url, timeout=10).json()
+        if res.get("query", {}).get("search"):
+            title = res["query"]["search"][0]["title"]
+            img_info_url = f"https://commons.wikimedia.org/w/api.php?action=query&titles={title}&prop=imageinfo&iiprop=url&format=json"
+            img_res = requests.get(img_info_url, timeout=10).json()
+            pages = img_res.get("query", {}).get("pages", {})
+            for p in pages.values():
+                if "imageinfo" in p:
+                    return p["imageinfo"][0]["url"]
+    except:
+        pass
     return None
 
 def fetch_full_content(url, description=""):
@@ -141,36 +170,29 @@ def rewrite_with_ai(original_content):
         return "Erro na Reescrita", "Falha de IA", original_content
 
 def get_player_image(player_name):
-    """Buscador de imagem resiliente usando DuckDuckGo para encontrar thumbnails estáveis"""
+    """Buscador de imagem resiliente"""
     if not player_name:
         return None
     
-    query = f"{player_name} cs2 player photo"
-    url = f"https://duckduckgo.com/html/?q={query}"
-    
+    # 1. Tenta Wikimedia (Super seguro contra 403)
+    wiki_img = get_player_image_wikimedia(player_name)
+    if wiki_img: return wiki_img
+
+    # 2. Tenta Liquipedia com headers de bot identificado
+    formatted_name = player_name.replace(" ", "_")
+    url = f"https://liquipedia.net/counterstrike/{formatted_name}"
     try:
-        print(f"Buscando player via pesquisa pública: {query}")
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-        }
-        res = requests.get(url, headers=headers, timeout=15)
+        print(f"Tentando Liquipedia identificada: {url}")
+        res = requests.get(url, headers=get_headers("liquipedia"), timeout=15)
         if res.status_code == 200:
             soup = BeautifulSoup(res.text, 'html.parser')
-            # Pega a primeira imagem de resultado que parece um thumbnail útil
-            # Nota: O DuckDuckGo HTML tem uma estrutura simples
-            img_tag = soup.select_one(".tile--img__img") or soup.select_one(".result__image") or soup.find("img", class_="tile--img__img")
+            img_tag = soup.select_one(".infobox-image img") or soup.select_one(".thumbimage")
             if img_tag:
-                # Se for DDG, a URL real pode estar em parâmetros, mas o src do thumbnail costuma ser gstatic/proxied
-                img_url = img_tag.get('src') or img_tag.get('data-src')
-                if img_url:
-                    if img_url.startswith("//"): img_url = "https:" + img_url
-                    return img_url
-    except Exception as e:
-        print(f"Erro na busca de imagem: {e}")
+                return "https://liquipedia.net" + img_tag['src'] if img_tag['src'].startswith("/") else img_tag['src']
+    except:
+        pass
     
-    # Se falhar o DDG, tenta um link direto da Liquipedia via construção de URL (mesmo com risco de 403)
-    formatted_name = player_name.replace(" ", "_")
-    return f"https://liquipedia.net/counterstrike/{formatted_name}"
+    return None
 
 def extract_main_player(text):
     """Usa a IA para identificar o jogador principal da notícia"""
