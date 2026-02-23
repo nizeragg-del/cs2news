@@ -18,7 +18,10 @@ export default async function Home() {
       {/* Hero Section */}
       <section className="relative h-[400px] rounded-3xl overflow-hidden glass-card group">
         <div className="absolute inset-0 bg-gradient-to-t from-background via-background/40 to-transparent z-10" />
-        <div className="absolute inset-0 bg-[url('/images/hero.jpg')] bg-cover bg-center group-hover:scale-105 transition-transform duration-700 opacity-60" />
+        <div
+          className="absolute inset-0 bg-cover bg-center group-hover:scale-105 transition-transform duration-700 opacity-60"
+          style={{ backgroundImage: "url('/images/hero.jpg')" }}
+        />
 
         <div className="absolute bottom-0 left-0 p-8 md:p-12 z-20 max-w-2xl">
           <span className="px-3 py-1 bg-primary text-background font-black text-xs uppercase tracking-widest rounded mb-4 inline-block">
@@ -55,7 +58,7 @@ export default async function Home() {
               <Link href={`/post/${post.id}`} key={post.id} className="glass-card rounded-2xl overflow-hidden flex flex-col group">
                 <div className="relative aspect-video overflow-hidden">
                   <img
-                    src={post.image_url || "https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=2070&auto=format&fit=crop"}
+                    src={post.image_url ? `/api/proxy-image?url=${encodeURIComponent(post.image_url)}` : "https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=2070&auto=format&fit=crop"}
                     alt={post.title}
                     className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                     referrerPolicy="no-referrer"

@@ -23,7 +23,7 @@ export default async function PostPage(props: { params: Promise<{ id: string }> 
             <article className="glass-card rounded-3xl overflow-hidden">
                 <div className="relative aspect-video w-full overflow-hidden">
                     <img
-                        src={post.image_url || "https://images.unsplash.com/photo-1542751371-adc38448a05e"}
+                        src={post.image_url ? `/api/proxy-image?url=${encodeURIComponent(post.image_url)}` : "https://images.unsplash.com/photo-1542751371-adc38448a05e"}
                         alt={post.title}
                         className="w-full h-full object-cover"
                         referrerPolicy="no-referrer"
