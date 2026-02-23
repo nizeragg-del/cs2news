@@ -22,11 +22,8 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # Configura Gemini (usando gemini-2.5-flash validado)
 if GEMINI_KEY:
     genai.configure(api_key=GEMINI_KEY)
-    # Tentamos gemini-1.5-flash-latest para maior compatibilidade com SDKs v1beta/v1
-    try:
-        model = genai.GenerativeModel('gemini-1.5-flash-latest')
-    except:
-        model = genai.GenerativeModel('gemini-1.5-flash')
+    # gemini-1.5-flash é o nome padrão. O erro 404 costuma indicar que a região ou versão do SDK é incompatível com o sufixo -latest.
+    model = genai.GenerativeModel('gemini-1.5-flash')
 else:
     model = None
 
@@ -42,15 +39,15 @@ def get_headers(site="hltv"):
             "Accept-Encoding": "gzip, deflate",
         }
     return {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-        "Accept-Language": "pt-BR,pt;q=0.9,en-US,en;q=0.8",
-        "Referer": "https://www.google.com/",
-        "Origin": "https://www.hltv.org",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.hltv.org/",
+        "Sec-Fetch-Dest": "image",
+        "Sec-Fetch-Mode": "no-cors",
         "Sec-Fetch-Site": "cross-site",
-        "Connection": "keep-alive"
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache"
     }
 
 def upload_image_to_supabase(url, file_name):
@@ -59,9 +56,13 @@ def upload_image_to_supabase(url, file_name):
         return None
     try:
         print(f"Baixando imagem para Storage: {url}")
-        # Tenta com headers de Liquipedia se for de lá, senão padrão
-        site = "liquipedia" if "liquipedia" in url else "hltv"
-        response = requests.get(url, headers=get_headers(site), timeout=25)
+        
+        # Headers mais específicos para a imagem
+        headers = get_headers("hltv")
+        if "img-cdn.hltv.org" in url:
+            headers["Host"] = "img-cdn.hltv.org"
+            
+        response = requests.get(url, headers=headers, timeout=30)
         
         if response.status_code == 200:
             storage_path = f"news/{file_name}.jpg"
