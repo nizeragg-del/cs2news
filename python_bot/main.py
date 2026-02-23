@@ -133,7 +133,46 @@ def rewrite_with_ai(original_content):
         print(f"Erro Gemini: {e}")
         return "Erro na Reescrita", "Falha de IA", original_content
 
-# Fallback IDs do Unsplash caso a imagem da HLTV falhe totalmente
+def get_player_image_liquipedia(player_name):
+    """Tenta buscar a imagem de um jogador na Liquipedia"""
+    if not player_name:
+        return None
+    
+    # Formata nome para URL da Liquipedia (ex: "NBK-" -> "NBK-", "ZywOo" -> "ZywOo")
+    formatted_name = player_name.replace(" ", "_")
+    url = f"https://liquipedia.net/counterstrike/{formatted_name}"
+    
+    try:
+        print(f"Buscando player na Liquipedia: {url}")
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        }
+        res = requests.get(url, headers=headers, timeout=15)
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.text, 'html.parser')
+            # Procura por imagem na infobox ou galeria
+            img_tag = soup.select_one(".infobox-image img") or soup.select_one(".thumbimage")
+            if img_tag:
+                img_url = "https://liquipedia.net" + img_tag['src'] if img_tag['src'].startswith("/") else img_tag['src']
+                return download_image_as_base64(img_url)
+    except Exception as e:
+        print(f"Erro Liquipedia: {e}")
+    return None
+
+def extract_main_player(text):
+    """Usa a IA para identificar o jogador principal da notícia"""
+    if not model or not text:
+        return None
+    
+    prompt = f"Identifique o nome do jogador de CS2 mais importante citado nesta notícia. Responda APENAS o nome/nickname. Se não houver, responda 'None'.\n\nTexto: {text[:1000]}"
+    try:
+        response = model.generate_content(prompt)
+        name = response.text.strip()
+        return name if name != "None" else None
+    except:
+        return None
+
+# Fallback IDs do Unsplash caso tudo falhe
 UNSPLASH_IDS = [
     "1542751371-adc38448a05e", # Guy playing
     "1511512578047-dfb367046420", # Gaming setup
@@ -163,14 +202,27 @@ def job():
         # Obtém conteúdo e a URL da imagem (HLTV CDN ou Meta Tag)
         full_text, hltv_image_url = fetch_full_content(item['link'], item['description'])
         
-        # Tenta baixar a imagem e converter para Base64 para salvar no banco
-        base64_image = download_image_as_base64(hltv_image_url)
-        
-        # Se a imagem da HLTV falhar, usa Unsplash
-        final_image_url = base64_image if base64_image else get_fallback_image()
-        
         # Reescrita IA
         title, excerpt, content = rewrite_with_ai(full_text)
+
+        # ESTRATÉGIA DE IMAGEM MULTI-CAMADA
+        final_image_url = None
+        
+        # 1. Tentativa HLTV (Base64)
+        print("Tentando Imagem HLTV (Base64)...")
+        final_image_url = download_image_as_base64(hltv_image_url)
+        
+        # 2. Tentativa Liquipedia (Base64) se a HLTV falhar
+        if not final_image_url:
+            print("HLTV falhou. Tentando extrator de jogadores e Liquipedia...")
+            player_name = extract_main_player(full_text or excerpt)
+            if player_name:
+                final_image_url = get_player_image_liquipedia(player_name)
+        
+        # 3. Fallback final Unsplash
+        if not final_image_url:
+            print("Liquipedia falhou. Usando Unsplash.")
+            final_image_url = get_fallback_image()
         
         if not title or not content or len(content) < 50:
             print(f"⚠️ Conteúdo insuficiente para: {item['title']}. Pulando...")
