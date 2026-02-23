@@ -169,43 +169,68 @@ def rewrite_with_ai(original_content):
         print(f"Erro Gemini: {e}")
         return "Erro na Reescrita", "Falha de IA", original_content
 
-def get_player_image(player_name):
-    """Buscador de imagem resiliente"""
-    if not player_name:
+def get_player_image(player_name, team_name=None):
+    """Buscador de imagem resiliente (Wikimedia + Liquipedia)"""
+    if not player_name and not team_name:
         return None
     
-    # 1. Tenta Wikimedia (Super seguro contra 403)
-    wiki_img = get_player_image_wikimedia(player_name)
-    if wiki_img: return wiki_img
+    search_term = player_name if player_name else team_name
+    print(f"Buscando imagem para: {search_term}")
+
+    # 1. Tenta Wikimedia (API oficial, super estável)
+    wiki_img = get_player_image_wikimedia(f"{search_term} Counter-Strike")
+    if wiki_img: 
+        print(f"Imagem encontrada no Wikimedia: {wiki_img}")
+        return wiki_img
 
     # 2. Tenta Liquipedia com headers de bot identificado
-    formatted_name = player_name.replace(" ", "_")
-    url = f"https://liquipedia.net/counterstrike/{formatted_name}"
-    try:
-        print(f"Tentando Liquipedia identificada: {url}")
-        res = requests.get(url, headers=get_headers("liquipedia"), timeout=15)
-        if res.status_code == 200:
-            soup = BeautifulSoup(res.text, 'html.parser')
-            img_tag = soup.select_one(".infobox-image img") or soup.select_one(".thumbimage")
-            if img_tag:
-                return "https://liquipedia.net" + img_tag['src'] if img_tag['src'].startswith("/") else img_tag['src']
-    except:
-        pass
+    if player_name:
+        formatted_name = player_name.replace(" ", "_")
+        url = f"https://liquipedia.net/counterstrike/{formatted_name}"
+        try:
+            print(f"Tentando Liquipedia: {url}")
+            res = requests.get(url, headers=get_headers("liquipedia"), timeout=15)
+            if res.status_code == 200:
+                soup = BeautifulSoup(res.text, 'html.parser')
+                img_tag = soup.select_one(".infobox-image img") or soup.select_one(".thumbimage")
+                if img_tag:
+                    full_url = "https://liquipedia.net" + img_tag['src'] if img_tag['src'].startswith("/") else img_tag['src']
+                    print(f"Imagem encontrada na Liquipedia: {full_url}")
+                    return full_url
+        except Exception as e:
+            print(f"Erro Liquipedia: {e}")
     
     return None
 
-def extract_main_player(text):
-    """Usa a IA para identificar o jogador principal da notícia"""
-    if not model or not text:
-        return None
+def extract_entities(title, text):
+    """Usa a IA para identificar o jogador ou time principal"""
+    if not model:
+        return None, None
     
-    prompt = f"Identifique o nome do jogador de CS2 mais importante citado nesta notícia. Responda APENAS o nome/nickname. Se não houver, responda 'None'.\n\nTexto: {text[:1000]}"
+    prompt = f"""
+    Analise o título e o texto da notícia de Counter-Strike 2.
+    Identifique:
+    1. O Jogador principal (Nickname).
+    2. O Time principal citado.
+    
+    Responda EXATAMENTE neste formato:
+    PLAYER: [Nome/Nickname ou None]
+    TEAM: [Nome do Time ou None]
+    
+    Título: {title}
+    Texto: {text[:500]}
+    """
     try:
         response = model.generate_content(prompt)
-        name = response.text.strip()
-        return name if name != "None" else None
+        lines = response.text.strip().split('\n')
+        player, team = None, None
+        for line in lines:
+            if "PLAYER:" in line: player = line.split("PLAYER:")[1].strip()
+            if "TEAM:" in line: team = line.split("TEAM:")[1].strip()
+        
+        return (None if player == "None" else player), (None if team == "None" else team)
     except:
-        return None
+        return None, None
 
 # Fallback IDs do Unsplash caso tudo falhe
 UNSPLASH_IDS = [
@@ -244,22 +269,26 @@ def job():
         final_image_url = None
         post_id = str(int(time.time()))
         
-        # 1. Tentativa HLTV (Sempre tentamos, às vezes passa)
+        # 1. Tentativa HLTV
         print("Tentando Imagem HLTV...")
         final_image_url = upload_image_to_supabase(hltv_image_url, f"hltv_{post_id}")
         
-        # 2. Busca Pública de Jogador (DuckDuckGo/Thumbnail)
+        # 2. Busca por Entidades (Jogador ou Time)
         if not final_image_url:
-            print("HLTV falhou. Buscando foto real do jogador...")
-            player_name = extract_main_player(full_text or excerpt)
-            if player_name:
-                search_img_url = get_player_image(player_name)
-                final_image_url = upload_image_to_supabase(search_img_url, f"player_{post_id}")
+            print("HLTV falhou. Buscando foto do jogador ou time...")
+            player_name, team_name = extract_entities(item['title'], full_text or excerpt)
+            
+            search_img_url = get_player_image(player_name, team_name)
+            if search_img_url:
+                final_image_url = upload_image_to_supabase(search_img_url, f"entity_{post_id}")
         
-        # 3. Fallback final Unsplash
+        # 3. Fallback final Unsplash (enviado para o storage para garantir)
         if not final_image_url:
-            print("Busca de jogador falhou. Usando Unsplash profissional.")
-            final_image_url = get_fallback_image()
+            print("Busca de entidades falhou. Usando Unsplash profissional...")
+            unsplash_url = get_fallback_image()
+            final_image_url = upload_image_to_supabase(unsplash_url, f"fallback_{post_id}")
+            # Se até o upload do fallback falhar (raro), usa a URL direta
+            if not final_image_url: final_image_url = unsplash_url
         
         if not title or not content or len(content) < 50:
             print(f"⚠️ Conteúdo insuficiente para: {item['title']}. Pulando...")
